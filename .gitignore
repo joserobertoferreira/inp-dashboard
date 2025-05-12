@@ -1,0 +1,27 @@
+# Ambientes Virtuais
+venv/
+*.venv/
+env/
+ENV/
+.env
+
+# Arquivos de Cache Python
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Arquivos de Configuração Local/Segredos
+.streamlit/
+*.env
+
+# Arquivos IDE
+.vscode/
+.idea/
+
+# Outros
+*.log
+*. RData
+*. Rds
+*.sav
+*.swp
+*~
