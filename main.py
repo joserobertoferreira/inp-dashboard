@@ -1,5 +1,13 @@
-# app.py
+import logging
+
 import streamlit as st
+
+from utils.logging_config import setup_logging
+
+# Configuração de logging
+setup_logging()
+logger = logging.getLogger(__name__)
+logger.info('Aplicação iniciada.')
 
 st.set_page_config(
     page_title='Dashboard de Consultas',

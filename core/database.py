@@ -1,93 +1,111 @@
-# core/database.py
 import logging
+from typing import Generator
 
 import pandas as pd
-import sqlalchemy as sa
 import streamlit as st
+from sqlalchemy import create_engine, text
+from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy.orm import Session, sessionmaker
 
 from utils.generics import Generics
 
-# Configurar logging básico
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+# Configurar logging
 logger = logging.getLogger(__name__)
 
+DB_CONNECTION_STRING = Generics().build_connection_string(config=st.secrets['database'])
 
-def get_engine():
-    """
-    Create and return a SQLAlchemy engine for database connection.
-    Cache the engine resource to avoid recreating it for every interaction for 1 hour.
-    """
-    try:
-        config = st.secrets['database']
-        driver_name = config['driver']
 
-        # Check if the driver is compatible with the OS
-        error_message, driver_name = Generics.check_odbc_driver(driver_name)
+class DatabaseManager:
+    """Database session manager."""
 
-        if error_message:
-            logger.error(error_message)
-            st.error(error_message)
-            return None
-
-        # Build the connection string
-        conn_str = sa.engine.URL.create(
-            drivername='mssql+pyodbc',
-            host=config['server'],
-            database=config['database'],
-            username=config.get('username'),
-            password=config.get('password'),
-            query={
-                'driver': driver_name,
-                # 'Encrypt': config['encrypt'],
-                # "TrustServerCertificate": "yes",
-                # "Trusted_Connection": config.get("trusted_connection", "no") # Se usar Windows Auth
-            },
+    def __init__(self, url: str, echo: bool = False):
+        """Initialize the database session manager."""
+        self.engine = create_engine(url, echo=echo)
+        self.SessionLocal = sessionmaker(
+            bind=self.engine,
+            autoflush=False,
+            autocommit=False,
         )
-        logger.info(f'String de conexão criada: {conn_str}')
-        logger.info('Criando nova engine de conexão com o banco de dados.')
-        engine = sa.create_engine(conn_str, fast_executemany=True)
 
-        # Teste rápido de conexão (opcional mas recomendado)
-        with engine.connect():
-            logger.info('Conexão com o banco de dados estabelecida com sucesso.')
-        return engine
+    # close connection
+    def close(self):
+        """Dispose of the engine connections."""
+        if self.engine:
+            self.engine.dispose()
+            logger.info('Database engine disposed.')
 
-    except KeyError as e:
-        logger.error(f"Erro ao acessar segredos do banco: Chave '{e}' não encontrada em secrets.toml")
-        st.error(f"Configuração do banco de dados incompleta. Verifique a chave '{e}' em .streamlit/secrets.toml.")
-        return None
-    except Exception as e:
-        logger.error(f'Erro ao conectar ao banco de dados: {e}', exc_info=True)
-        st.error(f'Não foi possível conectar ao banco de dados: {e}')
-        return None
+    def get_db(self) -> Generator[Session, None, None]:
+        """Provides a database session within a context."""
+        db = self.SessionLocal()
+        try:
+            yield db
+        finally:
+            db.close()
+
+    def commit_rollback(self, session: Session):  # noqa: PLR6301
+        """Commits the session or rolls back in case of an error."""
+        try:
+            session.commit()
+            logger.debug('Session committed successfully.')
+        except Exception as e:
+            session.rollback()
+            logger.error(f'Session rollback due to error: {e}', exc_info=True)
+            raise
+
+    def run_query(self, query: str, params: dict = None) -> pd.DataFrame:
+        """
+        Executes an SQL query on the database and returns the result as a Pandas DataFrame.
+        This function caches the results for 10 minutes to improve performance.
+
+        Args:
+            query (str): The SQL query string to be executed.
+            params (dict, optional): Dictionary of parameters for the query. Defaults to None.
+
+        Returns:
+            pd.DataFrame: DataFrame with the query results or an empty DataFrame in case of an error.
+        """
+        if not self.engine:
+            logger.error('Database engine is not initialized.')
+            st.error('Erro ao conectar ao banco de dados. Verifique os logs.')
+            return pd.DataFrame()
+
+        logger.debug(f'Executing Core query: {query} with params: {params}')
+        logger.info(f'Executando query: {query[:50]}...')  # Log truncado da query
+
+        try:
+            with self.engine.connect() as connection:
+                # Usar text() para queries parametrizadas com segurança (evita SQL Injection)
+                sql_text = connection.execute(text(query), params if params else {})
+                df = pd.DataFrame(sql_text.fetchall(), columns=sql_text.keys())
+                logger.info(f'Query executada com sucesso. Retornadas {len(df)} linhas.')
+                return df
+        except SQLAlchemyError as e:
+            logger.error(f'Erro ao executar query com SQLAlchemy Core: {e}', exc_info=True)
+            st.error(f'Erro de banco de dados ao executar a query (Core): {e}')
+            return pd.DataFrame()
+        except Exception as e:
+            logger.error(f'Erro inesperado ao executar query (Core): {e}', exc_info=True)
+            st.error(f'Erro inesperado durante a consulta ao banco (Core): {e}')
+            return pd.DataFrame()
 
 
-@st.cache_data(ttl=600)
-def run_query(query: str, params: dict = None) -> pd.DataFrame:
-    """
-    Executes an SQL query on the database and returns the result as a Pandas DataFrame.
-    This function caches the results for 10 minutes to improve performance.
+# Initialize the database session manager
+db = None
 
-    Args:
-        query (str): The SQL query string to be executed.
-        params (dict, optional): Dictionary of parameters for the query. Defaults to None.
-
-    Returns:
-        pd.DataFrame: DataFrame with the query results or an empty DataFrame in case of an error.
-    """
-    engine = get_engine()
-    if engine is None:
-        return pd.DataFrame()  # Retorna DF vazio se não há conexão
-
-    logger.info(f'Executando query: {query[:100]}...')  # Log truncado da query
+if DB_CONNECTION_STRING:
     try:
-        with engine.connect() as connection:
-            # Usar text() para queries parametrizadas com segurança (evita SQL Injection)
-            sql_text = sa.text(query)
-            df = pd.read_sql(sql_text, connection, params=params)
-            logger.info(f'Query executada com sucesso. Retornadas {len(df)} linhas.')
-            return df
-    except Exception as e:
-        logger.error(f'Erro ao executar query: {e}\nQuery: {query}\nParams: {params}', exc_info=True)
-        st.error(f'Erro ao executar a consulta no banco de dados: {e}')
-        return pd.DataFrame()  # Retorna DF vazio em caso de erro
+        # Passe echo=True para ver as queries SQL geradas, False para produção
+        db = DatabaseManager(url=DB_CONNECTION_STRING, echo=True)
+        logger.info('DatabaseSessionManager initialized successfully.')
+    except ValueError as ve:  # Erro específico da nossa validação de URL
+        logger.error(f'Configuration Error: {ve}')
+        st.error(f'Erro de Configuração do Banco: {ve}')
+    except SQLAlchemyError as sa_err:  # Erros da criação do engine
+        logger.error(f'SQLAlchemy Engine Creation Error: {sa_err}', exc_info=True)
+        st.error(f'Erro ao conectar ao banco (Engine): {sa_err}')
+    except Exception as e:  # Outros erros inesperados
+        logger.error(f'Unexpected error initializing DatabaseSessionManager: {e}', exc_info=True)
+        st.error(f'Erro inesperado na inicialização do banco: {e}')
+else:
+    # Mensagem de erro já emitida se DB_CONNECTION_STRING não pôde ser construído
+    st.error('Configuração do banco de dados ausente ou incompleta em st.secrets. Verifique os logs.')

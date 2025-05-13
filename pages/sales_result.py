@@ -6,7 +6,9 @@ import numpy as np
 import pandas as pd
 import streamlit as st
 
-from core.database import run_query
+from core.database import db
+from services.partners_service import PartnersService
+from services.publications_service import PublicationsService
 
 logger = logging.getLogger(__name__)
 
@@ -19,83 +21,15 @@ st.markdown('Compare os resultados de vendas de uma publicação entre o ano sel
 # --- Funções de Lógica do Relatório ---
 
 
-@st.cache_data(ttl=3600)
-def fetch_suppliers(schema: str) -> dict:
-    """Busca os fornecedores (editores) do tipo ZEDITOR_0 = 2."""
-    logger.info('Buscando lista de fornecedores (Editores)...')
-    query = f"""
-    SELECT
-        BPRNUM_0 AS CodigoFornecedor,
-        BPRNAM_0 AS NomeFornecedor
-    FROM
-        {schema}.BPARTNER
-    WHERE
-        ZEDITOR_0 = 2
-    ORDER BY
-        NomeFornecedor;
-    """
-    try:
-        df_suppliers = run_query(query)
-        if df_suppliers.empty:
-            logger.warning('Nenhum fornecedor (editor) encontrado com ZEDITOR_0 = 2.')
-            return {}
-        else:
-            # Cria o dicionário {NomeFornecedor: CodigoFornecedor}
-            supplier_dict = pd.Series(df_suppliers.CodigoFornecedor.values, index=df_suppliers.NomeFornecedor).to_dict()
-            logger.info(f'Encontrados {len(supplier_dict)} fornecedores.')
-            return supplier_dict
-    except Exception as e:
-        logger.error(f'Erro ao buscar fornecedores: {e}', exc_info=True)
-        st.error(f'Erro ao carregar a lista de fornecedores: {e}')
-        return {}
-
-
-@st.cache_data(ttl=600)
-def fetch_publications_by_supplier(schema: str, supplier_code: str) -> dict:
-    """
-    Busca as publicações associadas a um código de fornecedor (BPSNUM_0).
-    RETORNA: Um dicionário {nome_publicacao: codigo_publicacao} ou vazio.
-    """
-    if not supplier_code:
-        return {}
-
-    logger.info(f'Buscando publicações para o fornecedor: {supplier_code}')
-
-    query = f"""
-    SELECT
-        CODPUB_0 AS CodigoPub,
-        DESPUB_0 AS NomePub
-    FROM
-        {schema}.ZPUBLIC
-    WHERE
-        DISTVSP_0 = 2
-        AND BPSNUM_0 = :sup_code -- Filtra pelo código do fornecedor selecionado (BPRNUM_0)
-    ORDER BY
-        NomePub;
-    """
-    params = {'sup_code': supplier_code}
-
-    try:
-        df_pubs = run_query(query, params)
-        if df_pubs.empty:
-            logger.warning(f'Nenhuma publicação encontrada para o fornecedor {supplier_code}.')
-            return {}
-        else:
-            # Cria o dicionário {Nome/Descrição: Codigo}
-            publication_dict = pd.Series(df_pubs.CodigoPub.values, index=df_pubs.NomePub).to_dict()
-            logger.info(f'Encontradas {len(publication_dict)} publicações para o fornecedor {supplier_code}.')
-            return publication_dict
-    except Exception as e:
-        logger.error(f'Erro ao buscar publicações para o fornecedor {supplier_code}: {e}', exc_info=True)
-        st.error(f'Erro ao carregar publicações do fornecedor: {e}')
-        return {}
-
-
 def fetch_sales_data(schema: str, publication: str, year: int) -> pd.DataFrame:
     """
     Fetches sales data from the database for the specified publication and years.
     This function MUST be adapted with the correct SQL query for your database.
     """
+    if not db:
+        st.error('Gerenciador do banco não disponível para buscar dados de vendas.')
+        return pd.DataFrame()
+
     end_date = datetime.date(year, 12, 31).strftime('%Y-%m-%d')
     start_date = datetime.date(year - 1, 1, 1).strftime('%Y-%m-%d')
     logger.info(
@@ -125,7 +59,7 @@ def fetch_sales_data(schema: str, publication: str, year: int) -> pd.DataFrame:
     """
     params = {'pub_param': publication, 'start_date': start_date, 'end_date': end_date}
 
-    df = run_query(query, params)
+    df = db.run_query(query, params)
 
     if df.empty:
         logger.warning(f'Nenhum dado retornado do banco para os parâmetros: {params}')
@@ -449,7 +383,8 @@ st.sidebar.header('Filtros do Relatório')
 db_schema = st.secrets.get('database', {}).get('schema', 'X3')
 
 # 1. Busca e Seleção de Fornecedor
-supplier_options = fetch_suppliers(db_schema)  # Busca a lista {Nome: Codigo}
+suppliers = PartnersService
+supplier_options = suppliers.fetch_raw_suppliers(db_schema)
 selected_supplier_name = None
 selected_supplier_code = None
 
@@ -470,6 +405,7 @@ else:
 
 
 # 2. Busca e Seleção de Publicação (Condicional ao Fornecedor)
+publications = PublicationsService
 publication_options = {}
 selected_publication_name = None
 selected_publication_code = None
@@ -478,7 +414,7 @@ if selected_supplier_code:  # Só busca se um fornecedor foi selecionado
     try:
         # Busca as publicações associadas ao fornecedor selecionado
         with st.spinner(f'Buscando publicações para {selected_supplier_name}...'):
-            publication_options = fetch_publications_by_supplier(db_schema, selected_supplier_code)
+            publication_options = publications.fetch_publications_by_supplier(db_schema, selected_supplier_code)
 
         if publication_options:
             selected_publication_name = st.sidebar.selectbox(

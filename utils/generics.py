@@ -1,4 +1,10 @@
+import logging
 import platform
+
+import sqlalchemy as sa
+
+# Configurar logging
+logger = logging.getLogger(__name__)
 
 
 class Generics:
@@ -29,3 +35,32 @@ class Generics:
             error_message = f"Sistema operacional '{os_name}' não suportado."
 
         return error_message, driver_name
+
+    def build_connection_string(self, config: dict):
+        """
+        Builds the database connection string.
+        :param config: Dictionary with the database configuration.
+        :return: Formatted connection string.
+        """
+        driver_name = config['driver']
+        error_message, driver_name = self.check_odbc_driver(driver_name)
+
+        if error_message:
+            return error_message, None
+
+        conn_str = sa.engine.URL.create(
+            drivername='mssql+pyodbc',
+            host=config['server'],
+            database=config['database'],
+            username=config.get('username'),
+            password=config.get('password'),
+            query={
+                'driver': driver_name,
+                # 'Encrypt': config['encrypt'],
+                # "TrustServerCertificate": "yes",
+                # "Trusted_Connection": config.get("trusted_connection", "no") # Se usar Windows Auth
+            },
+        )
+
+        logger.info(f'String de conexão criada: {conn_str}')
+        return conn_str
