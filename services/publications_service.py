@@ -1,9 +1,10 @@
 import logging
+from typing import Optional
 
 import pandas as pd
 import streamlit as st
 
-from core.database import db
+from core.database import DatabaseManager, get_database_manager
 
 logger = logging.getLogger(__name__)
 
@@ -32,7 +33,9 @@ class PublicationsService:
             return {}
 
         # Define the database connection
-        if not db:
+        db_manager: Optional[DatabaseManager] = get_database_manager()
+
+        if not db_manager or not db_manager.engine:  # Verifica se db e seu engine foram inicializados
             logger.error('Database connection is not established.')
             st.error('Database connection is not established.')
             return {}
@@ -54,7 +57,7 @@ class PublicationsService:
         params = {'sup_code': supplier_code}
 
         try:
-            df_pubs = db.run_query(query, params)
+            df_pubs = db_manager.run_query(query, params)
 
             if df_pubs.empty:
                 logger.warning(f'Nenhuma publicação encontrada para o fornecedor {supplier_code}.')

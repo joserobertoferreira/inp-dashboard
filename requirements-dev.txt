@@ -1,0 +1,8 @@
+-r requirements.txt
+
+inflect==7.5.0
+more-itertools==10.7.0
+sqlacodegen==3.0.0
+taskipy==1.14.1
+tomli==2.2.1
+typeguard==4.4.2

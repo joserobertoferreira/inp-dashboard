@@ -1,5 +1,6 @@
 import logging
-from typing import Generator
+from contextlib import contextmanager
+from typing import Generator, Optional
 
 import pandas as pd
 import streamlit as st
@@ -11,8 +12,6 @@ from utils.generics import Generics
 
 # Configurar logging
 logger = logging.getLogger(__name__)
-
-DB_CONNECTION_STRING = Generics().build_connection_string(config=st.secrets['database'])
 
 
 class DatabaseManager:
@@ -34,13 +33,25 @@ class DatabaseManager:
             self.engine.dispose()
             logger.info('Database engine disposed.')
 
+    @contextmanager
     def get_db(self) -> Generator[Session, None, None]:
         """Provides a database session within a context."""
-        db = self.SessionLocal()
+        if not self.SessionLocal:
+            logger.error('SessionLocal is not initialized.')
+            raise RuntimeError('Erro ao conectar ao banco de dados. Verifique os logs.')
+
+        db_session: Optional[Session] = None
         try:
-            yield db
+            db_session = self.SessionLocal()
+            logger.debug(f'Sessão de banco de dados {id(db_session)} criada e sendo fornecida.')
+            yield db_session
+        except Exception as e:  # Captura exceções dentro do bloco 'with' que usa esta sessão
+            logger.error(f'Exceção dentro do contexto da sessão de banco de dados {id(db_session)}: {e}', exc_info=True)
+            raise
         finally:
-            db.close()
+            if db_session:
+                logger.debug(f'Fechando sessão de banco de dados {id(db_session)}.')
+                db_session.close()
 
     def commit_rollback(self, session: Session):  # noqa: PLR6301
         """Commits the session or rolls back in case of an error."""
@@ -52,7 +63,7 @@ class DatabaseManager:
             logger.error(f'Session rollback due to error: {e}', exc_info=True)
             raise
 
-    def run_query(self, query: str, params: dict = None) -> pd.DataFrame:
+    def run_query(self, query: str, params: Optional[dict] = None) -> pd.DataFrame:
         """
         Executes an SQL query on the database and returns the result as a Pandas DataFrame.
         This function caches the results for 10 minutes to improve performance.
@@ -76,7 +87,7 @@ class DatabaseManager:
             with self.engine.connect() as connection:
                 # Usar text() para queries parametrizadas com segurança (evita SQL Injection)
                 sql_text = connection.execute(text(query), params if params else {})
-                df = pd.DataFrame(sql_text.fetchall(), columns=sql_text.keys())
+                df = pd.DataFrame(sql_text.fetchall(), columns=sql_text.keys())  # type: ignore
                 logger.info(f'Query executada com sucesso. Retornadas {len(df)} linhas.')
                 return df
         except SQLAlchemyError as e:
@@ -92,10 +103,12 @@ class DatabaseManager:
 # Initialize the database session manager
 db = None
 
+DB_CONNECTION_STRING = Generics().build_connection_string(config=st.secrets['database'])
+
 if DB_CONNECTION_STRING:
     try:
         # Passe echo=True para ver as queries SQL geradas, False para produção
-        db = DatabaseManager(url=DB_CONNECTION_STRING, echo=True)
+        db = DatabaseManager(url=DB_CONNECTION_STRING, echo=True)  # type: ignore
         logger.info('DatabaseSessionManager initialized successfully.')
     except ValueError as ve:  # Erro específico da nossa validação de URL
         logger.error(f'Configuration Error: {ve}')

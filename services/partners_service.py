@@ -1,10 +1,11 @@
 import logging
+from typing import Optional
 
 import pandas as pd
 import streamlit as st
 from sqlalchemy.exc import SQLAlchemyError
 
-from core.database import db
+from core.database import DatabaseManager, get_database_manager
 from models.partner import Partner
 
 logger = logging.getLogger(__name__)
@@ -33,7 +34,9 @@ class PartnersService:
         """
 
         # Define the database connection
-        if not db:
+        db_manager: Optional[DatabaseManager] = get_database_manager()
+
+        if not db_manager or not db_manager.engine:  # Verifica se db e seu engine foram inicializados
             logger.error('Database connection is not established.')
             st.error('Database connection is not established.')
             return {}
@@ -54,7 +57,7 @@ class PartnersService:
         """
 
         try:
-            df_suppliers = db.run_query(query)
+            df_suppliers = db_manager.run_query(query)
 
             if df_suppliers.empty:
                 logger.warning('Nenhum fornecedor (editor) encontrado')
@@ -73,14 +76,16 @@ class PartnersService:
 
     @staticmethod
     def fetch_suppliers() -> dict:
-        if not db:
+        db_manager: Optional[DatabaseManager] = get_database_manager()
+
+        if not db_manager or not db_manager.engine:  # Verifica se db e seu engine foram inicializados
             st.error('Gerenciador do banco não disponível.')
             return {}
 
         logger.info('(Service ORM) Buscando fornecedores via ORM...')
         try:
             # Usa o context manager para a sessão ORM
-            with db.get_db() as session:
+            with db_manager.get_db() as session:
                 suppliers = (
                     session.query(Partner.bp.label('CodigoFornecedor'), Partner.partnerNames[0].label('NomeFornecedor'))
                     .filter(Partner.isSupplier == 2)  # noqa: PLR2004

@@ -4,35 +4,55 @@ import streamlit as st
 
 from utils.logging_config import setup_logging
 
-# Configuração de logging
-setup_logging()
-logger = logging.getLogger(__name__)
-logger.info('Aplicação iniciada.')
-
 st.set_page_config(
-    page_title='Dashboard de Consultas',
-    page_icon='📊',
-    layout='wide',  # Usar layout 'wide' para dashboards
-    initial_sidebar_state='expanded',  # Manter sidebar aberta por padrão
+    page_title='INP - Report Management System',
+    page_icon='images/favicon.ico',
+    # layout='wide',  # Usar layout 'wide' para dashboards
+    # initial_sidebar_state='expanded',  # Manter sidebar aberta por padrão
 )
+# st.logo('images/inp_international_news_portugal.png', icon_image='images/favicon.ico')
+st.logo('images/inp_international_news_portugal.png', icon_image='images/inp_international_news_portugal.png')
 
-st.title('📊 Bem-vindo ao Dashboard de Consultas')
+setup_logging()
 
-st.sidebar.success('Selecione um relatório acima.')
+logger = logging.getLogger(__name__)
 
-st.markdown(
-    """
-    Este é um dashboard interativo para visualizar dados importantes.
+# Initialize the Session State
+if 'authenticated' not in st.session_state:
+    st.session_state.authenticated = False
+if 'user' not in st.session_state:
+    st.session_state.user = None
 
-    **👈 Selecione um relatório na barra lateral** para começar!
+# Home page
+home_page = st.Page('home.py', title='Home', icon=':material/home:', default=True)
 
-    ### Relatórios Disponíveis:
-    *   **Comparativo de Vendas Anual:** Analisa vendas de uma publicação comparando o ano atual com o anterior.
-    *   _(Outros relatórios serão adicionados aqui)_
+# Authentication pages
+login_page = st.Page('auth/login.py', title='Login', icon=':material/login:')
+reset_page = st.Page('auth/reset.py', title='Reset Password', icon=':material/key:')
+logout_page = st.Page('auth/logout.py', title='Logout', icon=':material/logout:')
 
-    ---
-    *Desenvolvido com Streamlit*
-    """
-)
+auth_pages = [reset_page, logout_page]
 
-# Você pode adicionar mais informações aqui, como links úteis, contatos, etc.
+# # Reports pages
+sales_boards_page = st.Page('reports/sales-boards.py', title='Sales Boards', icon=':material/bar_chart:')
+
+reports_pages = [sales_boards_page]
+
+# Define navigation
+page_dict = {}
+
+logger.info(f'User {st.session_state.user} is authenticated: {st.session_state.authenticated}')
+
+if st.session_state.authenticated:
+    page_dict['Home'] = [home_page]
+    page_dict['Authentication'] = auth_pages
+    page_dict['Reports'] = reports_pages
+else:
+    st.title('INP - Acesso ao Sistema')
+
+    page_dict['Authentication'] = [login_page]
+
+# Execute navigation
+pg = st.navigation(page_dict)
+
+pg.run()

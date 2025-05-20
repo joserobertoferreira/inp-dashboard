@@ -74,7 +74,7 @@ class PrimaryKeyMixin:
         return mapped_column(
             'ROWID',
             Numeric(38, 0),
-            Identity(start=decimal.Decimal('1'), increment=decimal.Decimal('1')),
+            Identity(start=1, increment=1),
             primary_key=True,
         )
 
