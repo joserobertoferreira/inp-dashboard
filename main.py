@@ -7,7 +7,7 @@ from utils.logging_config import setup_logging
 st.set_page_config(
     page_title='INP - Report Management System',
     page_icon='images/favicon.ico',
-    # layout='wide',  # Usar layout 'wide' para dashboards
+    layout='wide',  # Usar layout 'wide' para dashboards
     # initial_sidebar_state='expanded',  # Manter sidebar aberta por padrão
 )
 # st.logo('images/inp_international_news_portugal.png', icon_image='images/favicon.ico')
@@ -34,7 +34,7 @@ logout_page = st.Page('auth/logout.py', title='Logout', icon=':material/logout:'
 auth_pages = [reset_page, logout_page]
 
 # # Reports pages
-sales_boards_page = st.Page('reports/sales-boards.py', title='Sales Boards', icon=':material/bar_chart:')
+sales_boards_page = st.Page('reports/sales_boards.py', title='Sales Boards', icon=':material/bar_chart:')
 
 reports_pages = [sales_boards_page]
 

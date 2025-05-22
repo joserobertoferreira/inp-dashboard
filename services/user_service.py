@@ -30,6 +30,7 @@ class UserService:
                   of streamlit-authenticator's config.
         """
         if not db:
+            logger.error('Database connection is not established.')
             st.error('Gerenciador do banco não disponível.')
             return {}
 
